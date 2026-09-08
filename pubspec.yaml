@@ -1,7 +1,7 @@
 name: nettrace
 description: NetTrace - iOS 轻量本地 HTTP/HTTPS 抓包调试工具
 publish_to: 'none'
-version: 1.2.0+5
+version: 1.3.0+6
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -20,6 +20,8 @@ dependencies:
   path_provider: ^2.1.3
   share_plus: ^9.0.0
   package_info_plus: ^8.0.0
+  # 后台保活（播放无声音频保持后台运行）
+  audioplayers: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -30,3 +32,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/certs/
+    - assets/audio/

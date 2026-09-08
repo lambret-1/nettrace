@@ -6,6 +6,7 @@ import '../core/constants.dart';
 import '../models/capture_record.dart';
 import '../models/http_request.dart';
 import '../models/http_response.dart';
+import '../utils/background_keepalive.dart';
 import 'certificate_manager.dart';
 import 'http_interceptor.dart';
 import 'https_mitm.dart';
@@ -102,6 +103,9 @@ class ProxyServer {
       onStateChanged?.call(true);
       _log('代理服务已启动: ${AppConstants.proxyHost}:${AppConstants.proxyPort}');
 
+      // 启动后台保活（播放无声音频，防止APP进入后台被挂起）
+      await BackgroundKeepAlive().start();
+
       _server!.listen(
         _handleConnection,
         onError: (e) => _log('监听错误: $e'),
@@ -122,6 +126,7 @@ class ProxyServer {
   /// 停止代理服务
   Future<void> stop() async {
     if (!_isRunning) return;
+    await BackgroundKeepAlive().stop();
     await _server?.close();
     _server = null;
     _isRunning = false;

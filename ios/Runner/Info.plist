@@ -54,6 +54,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>NetTrace 需要本地网络权限以运行本地代理服务进行抓包调试</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

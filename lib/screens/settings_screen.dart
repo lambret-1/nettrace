@@ -26,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoClear = false;
   CaStatus _caStatus = CaStatus.none;
   String _appVersion = '加载中...';
+  String _localIp = '获取中...';
   final TextEditingController _domainController = TextEditingController();
 
   @override
@@ -34,6 +35,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadSettings();
     _loadCaStatus();
     _loadAppVersion();
+    _loadLocalIp();
+  }
+
+  Future<void> _loadLocalIp() async {
+    final ip = await _proxy.getLocalIpAddress();
+    if (mounted) {
+      setState(() => _localIp = ip);
+    }
   }
 
   Future<void> _loadAppVersion() async {
@@ -193,7 +202,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               const Text('3. 滚动到「配置代理」，选择「手动」'),
               const SizedBox(height: 8),
-              Text('服务器: ${AppConstants.proxyHost}'),
+              Text('服务器: $_localIp'),
               Text('端口: ${AppConstants.proxyPort}'),
               const SizedBox(height: 8),
               const Text('4. 保存后，所有 HTTP/HTTPS 请求将经过 NetTrace'),
@@ -209,7 +218,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () {
               Clipboard.setData(
-                ClipboardData(text: '${AppConstants.proxyHost}:${AppConstants.proxyPort}'),
+                ClipboardData(text: '$_localIp:${AppConstants.proxyPort}'),
               );
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
@@ -330,12 +339,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(
             leading: const Icon(Icons.wifi_outlined),
             title: const Text('代理地址'),
-            subtitle: Text('${AppConstants.proxyHost}:${AppConstants.proxyPort}'),
+            subtitle: Text('$_localIp:${AppConstants.proxyPort}'),
             trailing: IconButton(
               icon: const Icon(Icons.copy, size: 18),
               onPressed: () {
                 Clipboard.setData(
-                  ClipboardData(text: '${AppConstants.proxyHost}:${AppConstants.proxyPort}'),
+                  ClipboardData(text: '$_localIp:${AppConstants.proxyPort}'),
                 );
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('已复制')),
