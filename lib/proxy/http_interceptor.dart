@@ -28,7 +28,6 @@ class HttpInterceptor {
 
     final method = parts[0].toUpperCase();
     final target = parts[1];
-    final version = parts.length > 2 ? parts[2] : 'HTTP/1.1';
 
     // 解析头部
     final headers = <String, String>{};
