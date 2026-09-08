@@ -72,7 +72,7 @@ class CertificateManager {
   }
 
   /// 检查本地 CA 证书文件是否已生成
-  Future<bool> get isCaFileExists async {
+  Future<bool> isCaFileExists() async {
     final dir = await getApplicationDocumentsDirectory();
     final certFile = File('${dir.path}/ca_cert.pem');
     final keyFile = File('${dir.path}/ca_key.json');
