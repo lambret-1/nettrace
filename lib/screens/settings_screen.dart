@@ -23,12 +23,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _useWhitelist = false;
   bool _darkMode = false;
   bool _autoClear = false;
+  CaStatus _caStatus = CaStatus.none;
   final TextEditingController _domainController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _loadCaStatus();
+  }
+
+  Future<void> _loadCaStatus() async {
+    final status = await _certManager.getCaStatus();
+    if (mounted) {
+      setState(() => _caStatus = status);
+    }
   }
 
   void _loadSettings() {
@@ -50,6 +59,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('导出证书失败: $e')),
+        );
+      }
+    }
+  }
+
+  /// 用户确认已完成证书安装与信任
+  Future<void> _confirmCaTrusted() async {
+    await _certManager.setCaStatus(CaStatus.fullyTrusted);
+    if (mounted) {
+      setState(() => _caStatus = CaStatus.fullyTrusted);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已确认，HTTPS 解密已启用')),
+      );
+    }
+  }
+
+  /// 重置 CA 证书
+  Future<void> _resetCa() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重置 CA 证书'),
+        content: const Text('确定要重置 CA 证书吗？重置后需要重新生成、安装并信任证书。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('重置', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await _certManager.resetCA();
+      // 重新初始化生成新证书
+      await _certManager.init();
+      await _certManager.setCaStatus(CaStatus.generated);
+      if (mounted) {
+        setState(() => _caStatus = CaStatus.generated);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('CA 证书已重置，请重新安装并信任')),
         );
       }
     }
@@ -240,24 +294,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           // ---- HTTPS 解密 ----
           _buildSectionHeader('HTTPS 解密'),
-          ListTile(
-            leading: const Icon(Icons.verified_user_outlined),
-            title: const Text('CA 证书状态'),
-            subtitle: Text(_certManager.isReady ? '已生成' : '未初始化'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showCaInstructions,
-          ),
-          ListTile(
-            leading: const Icon(Icons.download_outlined),
-            title: const Text('导出并安装 CA 证书'),
-            subtitle: const Text('解密 HTTPS 流量必需'),
-            onTap: _installCaCert,
-          ),
-          ListTile(
-            leading: const Icon(Icons.help_outline),
-            title: const Text('证书安装指南'),
-            onTap: _showCaInstructions,
-          ),
+          _buildCaStatusCard(),
 
           // ---- 代理配置 ----
           _buildSectionHeader('代理配置'),
@@ -363,6 +400,159 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 32),
         ],
+      ),
+    );
+  }
+
+  /// CA 证书状态卡片 - 根据 CaStatus 显示不同内容
+  Widget _buildCaStatusCard() {
+    IconData icon;
+    String title;
+    String subtitle;
+    Color color;
+    List<Widget> actions = [];
+
+    switch (_caStatus) {
+      case CaStatus.none:
+        icon = Icons.error_outline;
+        title = 'CA 证书未生成';
+        subtitle = 'APP 启动时会自动生成，请稍候或重启 APP';
+        color = Colors.grey;
+        break;
+      case CaStatus.generated:
+        icon = Icons.warning_amber_outlined;
+        title = 'CA 证书已在 APP 本地生成';
+        subtitle = '尚未安装到 iOS 系统，HTTPS 无法解密';
+        color = Colors.orange;
+        actions = [
+          ElevatedButton.icon(
+            onPressed: _installCaCert,
+            icon: const Icon(Icons.download_outlined, size: 18),
+            label: const Text('导出 CA 证书'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 44),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _showCaInstructions,
+            icon: const Icon(Icons.help_outline, size: 18),
+            label: const Text('查看安装指南'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 40),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _confirmCaTrusted,
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+            label: const Text('我已完成安装与信任'),
+          ),
+        ];
+        break;
+      case CaStatus.installedNotTrust:
+        icon = Icons.warning_amber_outlined;
+        title = 'CA 证书已安装，但未开启信任';
+        subtitle = '请前往 设置 → 关于本机 → 证书信任设置 开启开关';
+        color = Colors.orange;
+        actions = [
+          OutlinedButton.icon(
+            onPressed: _showCaInstructions,
+            icon: const Icon(Icons.help_outline, size: 18),
+            label: const Text('查看信任设置指南'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 40),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _confirmCaTrusted,
+            icon: const Icon(Icons.check_circle_outline, size: 18),
+            label: const Text('我已开启完全信任'),
+          ),
+        ];
+        break;
+      case CaStatus.fullyTrusted:
+        icon = Icons.verified_user;
+        title = 'CA 证书已生成 + 系统已信任';
+        subtitle = 'HTTPS 解密已启用，可以正常抓包';
+        color = Colors.green;
+        actions = [
+          OutlinedButton.icon(
+            onPressed: _installCaCert,
+            icon: const Icon(Icons.download_outlined, size: 18),
+            label: const Text('重新导出 CA 证书'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 40),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _resetCa,
+            icon: const Icon(Icons.refresh, size: 18, color: Colors.red),
+            label: const Text('重置 CA 证书', style: TextStyle(color: Colors.red)),
+          ),
+        ];
+        break;
+    }
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (_caStatus == CaStatus.generated ||
+                _caStatus == CaStatus.installedNotTrust) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  '⚠️ 重要：仅安装描述文件不够，还必须在「设置 → 通用 → 关于本机 → 证书信任设置」中开启 NetTrace CA 的完全信任开关，否则 HTTPS 依旧无法解密。',
+                  style: TextStyle(fontSize: 12, color: Colors.orange),
+                ),
+              ),
+            ],
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              ...actions,
+            ],
+          ],
+        ),
       ),
     );
   }

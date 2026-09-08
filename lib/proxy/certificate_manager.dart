@@ -8,6 +8,24 @@ import 'package:pointycastle/export.dart';
 
 import '../core/constants.dart';
 
+/// CA 证书安装状态
+///
+/// iOS 沙盒限制：APP 无法直接读取系统证书库判断信任状态，
+/// 因此「已安装并信任」需要用户手动确认。
+enum CaStatus {
+  /// 未生成：APP 本地还没有 CA 证书文件
+  none,
+
+  /// 已生成：APP 本地已生成 CA 证书文件，但尚未安装到 iOS 系统
+  generated,
+
+  /// 已安装未信任：描述文件已安装，但未开启「证书信任设置」开关
+  installedNotTrust,
+
+  /// 完全信任：系统已安装并开启完全信任，可以解密 HTTPS
+  fullyTrusted,
+}
+
 /// CA 证书管理器 - 手动构造 X.509 证书 ASN.1 DER
 ///
 /// pointycastle 4.0，私钥用 JSON 持久化（避免 ASN1 解析器版本差异），
@@ -23,6 +41,58 @@ class CertificateManager {
   final Map<String, _CachedCert> _certCache = {};
 
   bool get isReady => _caPrivateKey != null && _caCertPem != null;
+
+  // ---- CA 状态管理 ----
+
+  /// 获取 CA 证书安装状态（从本地状态文件读取）
+  Future<CaStatus> getCaStatus() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final statusFile = File('${dir.path}/ca_status.json');
+      if (!statusFile.existsSync()) {
+        // 状态文件不存在，检查证书文件是否存在
+        final exists = await isCaFileExists();
+        return exists ? CaStatus.generated : CaStatus.none;
+      }
+      final index = int.parse(statusFile.readAsStringSync().trim());
+      if (index < 0 || index >= CaStatus.values.length) {
+        return CaStatus.none;
+      }
+      return CaStatus.values[index];
+    } catch (_) {
+      return CaStatus.none;
+    }
+  }
+
+  /// 设置 CA 证书安装状态
+  Future<void> setCaStatus(CaStatus status) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final statusFile = File('${dir.path}/ca_status.json');
+    statusFile.writeAsStringSync(status.index.toString());
+  }
+
+  /// 检查本地 CA 证书文件是否已生成
+  Future<bool> get isCaFileExists async {
+    final dir = await getApplicationDocumentsDirectory();
+    final certFile = File('${dir.path}/ca_cert.pem');
+    final keyFile = File('${dir.path}/ca_key.json');
+    return certFile.existsSync() && keyFile.existsSync();
+  }
+
+  /// 重置 CA 证书：删除本地证书、私钥和状态文件
+  Future<void> resetCA() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final certFile = File('${dir.path}/ca_cert.pem');
+    final keyFile = File('${dir.path}/ca_key.json');
+    final statusFile = File('${dir.path}/ca_status.json');
+    if (certFile.existsSync()) certFile.deleteSync();
+    if (keyFile.existsSync()) keyFile.deleteSync();
+    if (statusFile.existsSync()) statusFile.deleteSync();
+    _caPrivateKey = null;
+    _caPublicKey = null;
+    _caCertPem = null;
+    _certCache.clear();
+  }
 
   // OID 常量
   static const String _oidSha256WithRsa = '1.2.840.113549.1.1.11';

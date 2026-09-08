@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../core/constants.dart';
 import '../models/capture_record.dart';
 import '../models/filter_result.dart';
+import '../proxy/certificate_manager.dart';
 import '../proxy/proxy_server.dart';
 import '../storage/capture_store.dart';
 import '../utils/har_exporter.dart';
@@ -114,6 +115,39 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isRunning) {
       await _proxy.stop();
     } else {
+      // 检查 CA 证书状态
+      final caStatus = await CertificateManager().getCaStatus();
+      if (caStatus != CaStatus.fullyTrusted && mounted) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('CA 证书未完全信任'),
+            content: const Text(
+              'CA 证书尚未完成系统安装与信任，HTTPS 流量将无法解密（仅隧道转发），仅 HTTP 明文请求可以正常抓取。\n\n建议先在设置页完成 CA 证书的安装与信任。\n\n是否仍然启动抓包？',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('去设置'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('仍然启动'),
+              ),
+            ],
+          ),
+        );
+
+        if (proceed != true) {
+          // 跳转到设置页
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          );
+          return;
+        }
+      }
+
       // 同步过滤配置
       _proxy.blacklist = _store.getBlacklist();
       _proxy.whitelist = _store.getWhitelist();
