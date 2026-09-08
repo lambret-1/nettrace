@@ -67,7 +67,8 @@ class HarExporter {
 
     // 请求 body
     if (req.body != null && req.body!.isNotEmpty) {
-      entry['request']['postData'] = {
+      final requestMap = entry['request'] as Map<String, dynamic>;
+      requestMap['postData'] = {
         'mimeType': req.contentType ?? '',
         'text': req.bodyAsString,
       };

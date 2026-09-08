@@ -1,5 +1,3 @@
-import '../models/capture_record.dart';
-
 /// 格式化工具
 class FormatUtils {
   /// 格式化时间戳为 HH:mm:ss.SSS

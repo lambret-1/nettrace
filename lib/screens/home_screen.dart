@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/constants.dart';
-import '../core/theme.dart';
 import '../models/capture_record.dart';
 import '../models/filter_result.dart';
 import '../proxy/proxy_server.dart';
 import '../storage/capture_store.dart';
-import '../utils/format_utils.dart';
 import '../utils/har_exporter.dart';
 import '../widgets/request_tile.dart';
 import 'detail_screen.dart';

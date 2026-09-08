@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import '../models/http_request.dart';
 import '../models/http_response.dart';
