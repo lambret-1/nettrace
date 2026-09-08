@@ -85,9 +85,11 @@ class CertificateManager {
     final certFile = File('${dir.path}/ca_cert.pem');
     final keyFile = File('${dir.path}/ca_key.json');
     final statusFile = File('${dir.path}/ca_status.json');
+    final versionFile = File('${dir.path}/ca_cert_version.txt');
     if (certFile.existsSync()) certFile.deleteSync();
     if (keyFile.existsSync()) keyFile.deleteSync();
     if (statusFile.existsSync()) statusFile.deleteSync();
+    if (versionFile.existsSync()) versionFile.deleteSync();
     _caPrivateKey = null;
     _caPublicKey = null;
     _caCertPem = null;
@@ -118,11 +120,24 @@ class CertificateManager {
   static const int _tagSequence = 0x30;
   static const int _tagSet = 0x31;
 
+  /// CA 证书格式版本，升级时旧证书会自动重新生成
+  static const int _caCertVersion = 2;
+
   /// 初始化：加载或生成 CA 根证书
   Future<void> init() async {
     final dir = await getApplicationDocumentsDirectory();
     final certFile = File('${dir.path}/ca_cert.pem');
     final keyFile = File('${dir.path}/ca_key.json');
+    final versionFile = File('${dir.path}/ca_cert_version.txt');
+
+    // 检查证书版本，旧版本证书自动重新生成
+    final needRegenerate = !versionFile.existsSync() ||
+        versionFile.readAsStringSync().trim() != _caCertVersion.toString();
+
+    if (needRegenerate) {
+      if (certFile.existsSync()) certFile.deleteSync();
+      if (keyFile.existsSync()) keyFile.deleteSync();
+    }
 
     if (certFile.existsSync() && keyFile.existsSync()) {
       try {
@@ -139,6 +154,7 @@ class CertificateManager {
     _generateCa();
     certFile.writeAsStringSync(caCertPem);
     keyFile.writeAsStringSync(jsonEncode(_privateKeyToJson(_caPrivateKey!, _caPublicKey!)));
+    versionFile.writeAsStringSync(_caCertVersion.toString());
   }
 
   /// 生成自签 CA 根证书
@@ -413,11 +429,13 @@ $derBase64
     ));
 
     // keyUsage (critical): CA=0x06(keyCertSign|cRLSign), 非CA=0xA0(digitalSignature|keyEncipherment)
+    // BIT STRING 未使用位数：CA最高有效位是位6→unused=1, 非CA最高有效位是位2→unused=5
     final keyUsageByte = isCa ? 0x06 : 0xA0;
+    final unusedBits = isCa ? 1 : 5;
     extensions.add(_buildExtension(
       _oidKeyUsage,
       critical: true,
-      value: _asn1BitString(Uint8List.fromList([keyUsageByte])),
+      value: _asn1BitString(Uint8List.fromList([keyUsageByte]), unusedBits: unusedBits),
     ));
 
     if (!isCa) {
@@ -590,8 +608,8 @@ $derBase64
     return _derEncode(_tagInteger, bytes);
   }
 
-  Uint8List _asn1BitString(Uint8List data) =>
-      _derEncode(_tagBitString, Uint8List.fromList([0, ...data]));
+  Uint8List _asn1BitString(Uint8List data, {int unusedBits = 0}) =>
+      _derEncode(_tagBitString, Uint8List.fromList([unusedBits, ...data]));
 
   Uint8List _asn1OctetString(Uint8List data) =>
       _derEncode(_tagOctetString, data);
