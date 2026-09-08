@@ -239,17 +239,60 @@ class CertificateManager {
     return file.path;
   }
 
+  /// 导出 CA 证书为 DER 格式 .cer 文件（兜底方案）
+  ///
+  /// 如果 mobileconfig 安装失败，可以导出 .cer 文件，
+  /// 保存到"文件"APP 后点击即可安装。
+  Future<String> exportCaCertDer() async {
+    if (_caCertPem == null || _caCertPem!.isEmpty) {
+      await init();
+    }
+    final pemBody = _caCertPem!
+        .split('\n')
+        .where((line) => !line.trim().startsWith('-----'))
+        .map((line) => line.trim())
+        .join();
+    final derBytes = base64.decode(pemBody);
+
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/NetTrace_CA.cer');
+    file.writeAsBytesSync(derBytes);
+    return file.path;
+  }
+
   /// 导出 CA 证书为 iOS .mobileconfig 配置描述文件
   ///
   /// .mobileconfig 会被 iOS 直接识别为配置文件，引导用户安装，
   /// 比 .crt 需要手动去"文件"APP 点击的体验好很多。
   Future<String> exportCaMobileConfig() async {
+    // 防御性检查：确保证书已初始化
+    if (_caCertPem == null || _caCertPem!.isEmpty) {
+      await init();
+    }
+    if (_caCertPem == null || _caCertPem!.isEmpty) {
+      throw StateError('CA 证书生成失败，请尝试重置 CA 证书');
+    }
+
     // PEM 转 DER（去掉头尾，base64 解码）
-    final pemLines = caCertPem
+    final pemBody = _caCertPem!
         .split('\n')
-        .where((line) => !line.startsWith('-----'))
+        .where((line) => !line.trim().startsWith('-----'))
+        .map((line) => line.trim())
         .join();
-    final derBytes = base64.decode(pemLines);
+    if (pemBody.isEmpty) {
+      throw StateError('CA 证书 PEM 内容为空');
+    }
+
+    final Uint8List derBytes;
+    try {
+      derBytes = base64.decode(pemBody);
+    } catch (e) {
+      throw StateError('CA 证书 PEM 解码失败: $e');
+    }
+    if (derBytes.isEmpty) {
+      throw StateError('CA 证书 DER 内容为空');
+    }
+
     final derBase64 = base64.encode(derBytes);
 
     // 生成随机 UUID

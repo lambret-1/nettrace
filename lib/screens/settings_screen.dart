@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../core/constants.dart';
@@ -24,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _darkMode = false;
   bool _autoClear = false;
   CaStatus _caStatus = CaStatus.none;
+  String _appVersion = '加载中...';
   final TextEditingController _domainController = TextEditingController();
 
   @override
@@ -31,6 +33,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSettings();
     _loadCaStatus();
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() => _appVersion = '${info.version}+${info.buildNumber}');
+    }
   }
 
   Future<void> _loadCaStatus() async {
@@ -54,6 +64,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await Share.shareXFiles(
         [XFile(path, mimeType: 'application/x-apple-aspen-config')],
         subject: 'NetTrace CA 证书',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导出证书失败: $e')),
+        );
+      }
+    }
+  }
+
+  /// 导出原始 .cer(DER) 证书文件（兜底方案）
+  Future<void> _installCaCertDer() async {
+    try {
+      final path = await _certManager.exportCaCertDer();
+      await Share.shareXFiles(
+        [XFile(path, mimeType: 'application/pkix-cert')],
+        subject: 'NetTrace CA 证书 (.cer)',
       );
     } catch (e) {
       if (mounted) {
@@ -385,10 +412,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           // ---- 关于 ----
           _buildSectionHeader('关于'),
-          const ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('NetTrace'),
-            subtitle: Text('版本 1.0.0'),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('NetTrace'),
+            subtitle: Text('版本 $_appVersion'),
           ),
           const ListTile(
             leading: Icon(Icons.description_outlined),
@@ -430,9 +457,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton.icon(
             onPressed: _installCaCert,
             icon: const Icon(Icons.download_outlined, size: 18),
-            label: const Text('导出 CA 证书'),
+            label: const Text('导出 CA 证书 (推荐)'),
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 44),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _installCaCertDer,
+            icon: const Icon(Icons.file_download_outlined, size: 18),
+            label: const Text('导出 .cer 原始证书 (兜底)'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 40),
             ),
           ),
           const SizedBox(height: 8),
