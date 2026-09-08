@@ -275,15 +275,29 @@ class HttpsMitm {
     buffer.writeln(
       'HTTP/1.1 ${response.statusCode} ${response.reasonPhrase ?? ''}',
     );
+
+    // 过滤并修正响应头
+    final body = response.body;
     response.headers.forEach((key, value) {
+      // 移除 transfer-encoding，因为 body 已经被解码为原始字节
+      if (key.toLowerCase() == 'transfer-encoding') return;
+      // content-length 会在下面重新计算
+      if (key.toLowerCase() == 'content-length') return;
       buffer.writeln('$key: $value');
     });
+
+    // 添加正确的 content-length
+    if (body != null) {
+      buffer.writeln('content-length: ${body.length}');
+    }
+    // 强制关闭连接，避免 keep-alive 导致的问题
+    buffer.writeln('connection: close');
     buffer.writeln();
 
     final bytes = <int>[];
     bytes.addAll(utf8.encode(buffer.toString()));
-    if (response.body != null) {
-      bytes.addAll(response.body!);
+    if (body != null) {
+      bytes.addAll(body);
     }
     return bytes;
   }

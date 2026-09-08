@@ -139,14 +139,19 @@ class ProxyServer {
   Future<void> _handleConnection(Socket client) async {
     client.setOption(SocketOption.tcpNoDelay, true);
 
+    final clientAddr = '${client.remoteAddress.address}:${client.remotePort}';
+    _log('[连接] 新客户端连接: $clientAddr');
+
     try {
       // 使用 SocketBuffer 读取，避免反复订阅/取消导致数据丢失
       final socketBuffer = SocketBuffer(client);
 
       // 读取请求首行，判断是 HTTP 还是 CONNECT
       final line = await socketBuffer.readLine();
+      _log('[连接] 收到首行: $line (来自 $clientAddr)');
 
       if (line.isEmpty) {
+        _log('[连接] 首行为空，关闭连接: $clientAddr');
         client.close();
         socketBuffer.dispose();
         return;
@@ -170,8 +175,10 @@ class ProxyServer {
       }
 
       socketBuffer.dispose();
-    } catch (e) {
-      _log('连接处理错误: $e');
+      _log('[连接] 连接处理完成: $clientAddr');
+    } catch (e, stackTrace) {
+      _log('[连接] 处理异常: $e (来自 $clientAddr)');
+      _log('[连接] 堆栈: $stackTrace');
       try {
         client.close();
       } catch (_) {}
@@ -211,10 +218,13 @@ class ProxyServer {
   /// 处理普通 HTTP 请求
   Future<void> _handleHttpRequest(Socket client, SocketBuffer socketBuffer) async {
     final startTime = DateTime.now();
+    final clientAddr = '${client.remoteAddress.address}:${client.remotePort}';
 
     try {
       // 从 socketBuffer 解析完整请求
+      _log('[HTTP] 开始解析请求 (来自 $clientAddr)');
       final request = await _parseRequest(socketBuffer);
+      _log('[HTTP] 解析完成: ${request.method} ${request.url}');
 
       _log('HTTP ${request.method} ${request.url}');
       _requestCount++;
@@ -230,26 +240,32 @@ class ProxyServer {
       // 连接目标服务器
       final host = request.host ?? 'localhost';
       final port = request.port ?? 80;
+      _log('[HTTP] 连接目标服务器: $host:$port');
 
       final server = await Socket.connect(
         host,
         port,
         timeout: const Duration(milliseconds: AppConstants.connectTimeout),
       );
+      _log('[HTTP] 已连接目标服务器: $host:$port');
       final serverBuffer = SocketBuffer(server);
 
       // 转发请求（需要修改为相对路径，因为目标服务器不是代理）
       final forwardRequest = _buildForwardRequest(request);
       server.add(forwardRequest);
       await server.flush();
+      _log('[HTTP] 已转发请求到 $host:$port');
 
       // 读取响应
       final elapsed = DateTime.now().difference(startTime);
+      _log('[HTTP] 等待响应...');
       final response = await HttpInterceptor.parseResponse(serverBuffer, elapsed: elapsed);
+      _log('[HTTP] 收到响应: ${response.statusCode} (耗时 ${elapsed.inMilliseconds}ms)');
 
       // 将响应写回客户端
       client.add(_serializeResponseRaw(response));
       await client.flush();
+      _log('[HTTP] 已写回响应到客户端');
 
       // 通知记录
       final completedRecord = record.copyWith(response: response);
@@ -259,8 +275,9 @@ class ProxyServer {
       await _handleHttpKeepAlive(client, server, socketBuffer, serverBuffer, startTime);
 
       await server.close();
-    } catch (e) {
-      _log('HTTP 请求处理错误: $e');
+    } catch (e, stackTrace) {
+      _log('[HTTP] 处理异常: $e (来自 $clientAddr)');
+      _log('[HTTP] 堆栈: $stackTrace');
       _handleRecord(CaptureRecord(
         id: _generateId(),
         timestamp: startTime,
@@ -406,15 +423,26 @@ class ProxyServer {
   List<int> _serializeResponseRaw(HttpResponseData response) {
     final buffer = StringBuffer();
     buffer.writeln('HTTP/1.1 ${response.statusCode} ${response.reasonPhrase ?? ''}');
+
+    final body = response.body;
     response.headers.forEach((key, value) {
+      // 移除 transfer-encoding，因为 body 已经被解码
+      if (key.toLowerCase() == 'transfer-encoding') return;
+      // content-length 重新计算
+      if (key.toLowerCase() == 'content-length') return;
       buffer.writeln('$key: $value');
     });
+
+    if (body != null) {
+      buffer.writeln('content-length: ${body.length}');
+    }
+    buffer.writeln('connection: close');
     buffer.writeln();
 
     final bytes = <int>[];
     bytes.addAll(utf8.encode(buffer.toString()));
-    if (response.body != null) {
-      bytes.addAll(response.body!);
+    if (body != null) {
+      bytes.addAll(body);
     }
     return bytes;
   }

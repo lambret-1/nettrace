@@ -139,15 +139,31 @@ class HttpInterceptor {
     final target = query.isNotEmpty ? '$path?$query' : path;
 
     buffer.writeln('${request.method} $target HTTP/1.1');
+
+    final body = request.body;
     request.headers.forEach((key, value) {
+      // 移除代理相关头
+      final lowerKey = key.toLowerCase();
+      if (lowerKey == 'proxy-connection' ||
+          lowerKey == 'proxy-authorization' ||
+          lowerKey == 'proxy-authenticate') return;
+      // content-length 重新计算
+      if (lowerKey == 'content-length') return;
       buffer.writeln('$key: $value');
     });
+
+    // 添加正确的 content-length
+    if (body != null) {
+      buffer.writeln('content-length: ${body.length}');
+    }
+    // 强制关闭连接
+    buffer.writeln('connection: close');
     buffer.writeln();
 
     final bytes = <int>[];
     bytes.addAll(utf8.encode(buffer.toString()));
-    if (request.body != null) {
-      bytes.addAll(request.body!);
+    if (body != null) {
+      bytes.addAll(body);
     }
     return bytes;
   }
