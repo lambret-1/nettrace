@@ -32,7 +32,9 @@ jobs:
         run: flutter pub get
 
       - name: Generate iOS project files
-        run: flutter create . --platforms=ios --org com.nettrace --project-name nettrace
+        run: |
+          flutter create . --platforms=ios --org com.nettrace --project-name nettrace
+          rm -f test/widget_test.dart
 
       - name: Analyze code
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
