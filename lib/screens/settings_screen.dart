@@ -50,10 +50,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _installCaCert() async {
     try {
-      final path = await _certManager.exportCaCertToFile();
+      final path = await _certManager.exportCaMobileConfig();
       await Share.shareXFiles(
-        [XFile(path)],
-        text: 'NetTrace CA 证书 - 请在 iOS 设置中安装并信任',
+        [XFile(path, mimeType: 'application/x-apple-aspen-config')],
+        subject: 'NetTrace CA 证书',
       );
     } catch (e) {
       if (mounted) {
@@ -119,17 +119,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('1. 点击「导出并安装证书」，选择「存储到文件」'),
+              Text('1. 点击「导出 CA 证书」，选择「存储到文件」或 AirDrop 到本机'),
               SizedBox(height: 8),
-              Text('2. 打开 iOS 设置 → 通用 → VPN与设备管理'),
+              Text('2. 系统会提示「已下载描述文件」'),
               SizedBox(height: 8),
-              Text('3. 找到 NetTrace CA 描述文件，点击安装'),
+              Text('3. 打开 iOS 设置 → 通用 → VPN与设备管理'),
               SizedBox(height: 8),
-              Text('4. 安装完成后，进入 设置 → 通用 → 关于本机 → 证书信任设置'),
+              Text('4. 找到 NetTrace CA 描述文件，点击安装'),
               SizedBox(height: 8),
-              Text('5. 开启 NetTrace CA 证书的完全信任开关'),
+              Text('5. 安装完成后，进入 设置 → 通用 → 关于本机 → 证书信任设置'),
               SizedBox(height: 8),
-              Text('6. 返回 NetTrace，HTTPS 请求即可解密查看'),
+              Text('6. 开启 NetTrace CA 证书的完全信任开关'),
+              SizedBox(height: 8),
+              Text('7. 返回 NetTrace，点击「我已完成安装与信任」'),
               SizedBox(height: 16),
               Text(
                 '注意：此证书仅用于本地抓包解密，请不要在不信任的网络中安装。',

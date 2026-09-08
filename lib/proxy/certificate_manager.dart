@@ -223,6 +223,87 @@ class CertificateManager {
     return file.path;
   }
 
+  /// 导出 CA 证书为 iOS .mobileconfig 配置描述文件
+  ///
+  /// .mobileconfig 会被 iOS 直接识别为配置文件，引导用户安装，
+  /// 比 .crt 需要手动去"文件"APP 点击的体验好很多。
+  Future<String> exportCaMobileConfig() async {
+    // PEM 转 DER（去掉头尾，base64 解码）
+    final pemLines = caCertPem
+        .split('\n')
+        .where((line) => !line.startsWith('-----'))
+        .join();
+    final derBytes = base64.decode(pemLines);
+    final derBase64 = base64.encode(derBytes);
+
+    // 生成随机 UUID
+    final uuid1 = _generateUuid();
+    final uuid2 = _generateUuid();
+
+    final mobileConfig = '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>PayloadContent</key>
+\t<array>
+\t\t<dict>
+\t\t\t<key>PayloadCertificateFileName</key>
+\t\t\t<string>NetTraceCA.cer</string>
+\t\t\t<key>PayloadContent</key>
+\t\t\t<data>
+$derBase64
+\t\t\t</data>
+\t\t\t<key>PayloadDescription</key>
+\t\t\t<string>NetTrace CA 根证书，用于 HTTPS 抓包解密</string>
+\t\t\t<key>PayloadDisplayName</key>
+\t\t\t<string>NetTrace CA</string>
+\t\t\t<key>PayloadIdentifier</key>
+\t\t\t<string>com.nettrace.ca.cert</string>
+\t\t\t<key>PayloadType</key>
+\t\t\t<string>com.apple.security.root</string>
+\t\t\t<key>PayloadUUID</key>
+\t\t\t<string>$uuid1</string>
+\t\t\t<key>PayloadVersion</key>
+\t\t\t<integer>1</integer>
+\t\t</dict>
+\t</array>
+\t<key>PayloadDescription</key>
+\t<string>NetTrace CA 根证书安装描述文件，安装后需在"证书信任设置"中开启完全信任</string>
+\t<key>PayloadDisplayName</key>
+\t<string>NetTrace CA 证书</string>
+\t<key>PayloadIdentifier</key>
+\t<string>com.nettrace.ca.profile</string>
+\t<key>PayloadRemovalDisallowed</key>
+\t<false/>
+\t<key>PayloadType</key>
+\t<string>Configuration</string>
+\t<key>PayloadUUID</key>
+\t<string>$uuid2</string>
+\t<key>PayloadVersion</key>
+\t<integer>1</integer>
+</dict>
+</plist>''';
+
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/NetTrace_CA.mobileconfig');
+    file.writeAsStringSync(mobileConfig);
+    return file.path;
+  }
+
+  /// 生成随机 UUID（格式：xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx）
+  String _generateUuid() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+    String hex(int b) => b.toRadixString(16).padLeft(2, '0');
+    return '${hex(bytes[0])}${hex(bytes[1])}${hex(bytes[2])}${hex(bytes[3])}-'
+        '${hex(bytes[4])}${hex(bytes[5])}-'
+        '${hex(bytes[6])}${hex(bytes[7])}-'
+        '${hex(bytes[8])}${hex(bytes[9])}-'
+        '${hex(bytes[10])}${hex(bytes[11])}${hex(bytes[12])}${hex(bytes[13])}${hex(bytes[14])}${hex(bytes[15])}';
+  }
+
   // =====================================================================
   // 私钥 JSON 序列化（避免 ASN1 解析器版本差异）
   // =====================================================================
