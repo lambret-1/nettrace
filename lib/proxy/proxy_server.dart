@@ -10,6 +10,7 @@ import '../utils/background_keepalive.dart';
 import 'certificate_manager.dart';
 import 'http_interceptor.dart';
 import 'https_mitm.dart';
+import 'socket_buffer.dart';
 
 /// 本地代理服务器 - 核心入口
 /// 监听 127.0.0.1:8888，处理 HTTP 明文和 HTTPS CONNECT 请求
@@ -139,18 +140,22 @@ class ProxyServer {
     client.setOption(SocketOption.tcpNoDelay, true);
 
     try {
+      // 使用 SocketBuffer 读取，避免反复订阅/取消导致数据丢失
+      final socketBuffer = SocketBuffer(client);
+
       // 读取请求首行，判断是 HTTP 还是 CONNECT
-      final buffer = <int>[];
-      final line = await _readLine(client, buffer);
+      final line = await socketBuffer.readLine();
 
       if (line.isEmpty) {
         client.close();
+        socketBuffer.dispose();
         return;
       }
 
       final parts = line.split(' ');
       if (parts.isEmpty) {
         client.close();
+        socketBuffer.dispose();
         return;
       }
 
@@ -158,11 +163,13 @@ class ProxyServer {
 
       if (method == 'CONNECT') {
         // HTTPS CONNECT 请求
-        await _handleConnectRequest(client, parts, buffer);
+        await _handleConnectRequest(client, parts, socketBuffer);
       } else {
         // 普通 HTTP 请求
-        await _handleHttpRequest(client, buffer);
+        await _handleHttpRequest(client, socketBuffer);
       }
+
+      socketBuffer.dispose();
     } catch (e) {
       _log('连接处理错误: $e');
       try {
@@ -175,7 +182,7 @@ class ProxyServer {
   Future<void> _handleConnectRequest(
     Socket client,
     List<String> parts,
-    List<int> buffer,
+    SocketBuffer socketBuffer,
   ) async {
     if (parts.length < 2) {
       client.close();
@@ -192,19 +199,22 @@ class ProxyServer {
     _log('HTTPS CONNECT: $host:$port');
 
     // 读取并丢弃剩余的请求头（CONNECT 请求只有头没有 body）
-    await _drainHeaders(client, buffer);
+    while (true) {
+      final headerLine = await socketBuffer.readLine();
+      if (headerLine.isEmpty) break;
+    }
 
     // 交给 MITM 处理
     await _mitm?.handleConnect(client, host, port);
   }
 
   /// 处理普通 HTTP 请求
-  Future<void> _handleHttpRequest(Socket client, List<int> buffer) async {
+  Future<void> _handleHttpRequest(Socket client, SocketBuffer socketBuffer) async {
     final startTime = DateTime.now();
 
     try {
-      // 从已有 buffer + socket 解析完整请求
-      final request = await _parseRequestFromBuffer(client, buffer);
+      // 从 socketBuffer 解析完整请求
+      final request = await _parseRequest(socketBuffer);
 
       _log('HTTP ${request.method} ${request.url}');
       _requestCount++;
@@ -226,6 +236,7 @@ class ProxyServer {
         port,
         timeout: const Duration(milliseconds: AppConstants.connectTimeout),
       );
+      final serverBuffer = SocketBuffer(server);
 
       // 转发请求（需要修改为相对路径，因为目标服务器不是代理）
       final forwardRequest = _buildForwardRequest(request);
@@ -234,7 +245,7 @@ class ProxyServer {
 
       // 读取响应
       final elapsed = DateTime.now().difference(startTime);
-      final response = await HttpInterceptor.parseResponse(server, elapsed: elapsed);
+      final response = await HttpInterceptor.parseResponse(serverBuffer, elapsed: elapsed);
 
       // 将响应写回客户端
       client.add(_serializeResponseRaw(response));
@@ -245,7 +256,7 @@ class ProxyServer {
       _handleRecord(completedRecord);
 
       // keep-alive 后续请求
-      await _handleHttpKeepAlive(client, server, startTime);
+      await _handleHttpKeepAlive(client, server, socketBuffer, serverBuffer, startTime);
 
       await server.close();
     } catch (e) {
@@ -270,22 +281,23 @@ class ProxyServer {
   Future<void> _handleHttpKeepAlive(
     Socket client,
     Socket server,
+    SocketBuffer socketBuffer,
+    SocketBuffer serverBuffer,
     DateTime baseTime,
   ) async {
     try {
       while (true) {
-        final buffer = <int>[];
-        final line = await _readLine(client, buffer);
+        final line = await socketBuffer.readLine();
         if (line.isEmpty) break;
 
-        final request = await _parseRequestFromBuffer(client, buffer);
+        final request = await _parseRequest(socketBuffer, firstLine: line);
         final startTime = DateTime.now();
 
         server.add(_buildForwardRequest(request));
         await server.flush();
 
         final elapsed = DateTime.now().difference(startTime);
-        final response = await HttpInterceptor.parseResponse(server, elapsed: elapsed);
+        final response = await HttpInterceptor.parseResponse(serverBuffer, elapsed: elapsed);
 
         client.add(_serializeResponseRaw(response));
         await client.flush();
@@ -303,28 +315,30 @@ class ProxyServer {
     }
   }
 
-  /// 从已有 buffer + socket 解析完整请求
-  Future<HttpRequestData> _parseRequestFromBuffer(
-    Socket client,
-    List<int> initialBuffer,
-  ) async {
-    // 我们需要把 initialBuffer 已经读取的数据"还给"解析器
-    // 简单做法：先读取完整头部，再解析
-    final fullBuffer = List<int>.from(initialBuffer);
-    final headerEnd = await _readUntilHeaderEndFromSocket(client, fullBuffer);
+  /// 从 SocketBuffer 解析完整 HTTP 请求
+  Future<HttpRequestData> _parseRequest(
+    SocketBuffer socketBuffer, {
+    String? firstLine,
+  }) async {
+    // 读取请求首行
+    final requestLine = firstLine ?? await socketBuffer.readLine();
+    if (requestLine.isEmpty) {
+      throw Exception('Empty request line');
+    }
 
-    final headerText = utf8.decode(headerEnd, allowMalformed: true);
-    final lines = const LineSplitter().convert(headerText);
-
-    final requestLine = lines[0].trim();
     final parts = requestLine.split(' ');
+    if (parts.length < 2) {
+      throw Exception('Invalid request line: $requestLine');
+    }
+
     final method = parts[0].toUpperCase();
     final target = parts[1];
 
+    // 读取头部直到空行
     final headers = <String, String>{};
-    for (var i = 1; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) continue;
+    while (true) {
+      final line = await socketBuffer.readLine();
+      if (line.isEmpty) break;
       final colonIndex = line.indexOf(':');
       if (colonIndex > 0) {
         final key = line.substring(0, colonIndex).trim().toLowerCase();
@@ -333,12 +347,16 @@ class ProxyServer {
       }
     }
 
-    final uri = Uri.parse(target.startsWith('http') ? target : 'http://${headers['host'] ?? 'localhost'}$target');
+    final uri = Uri.parse(
+      target.startsWith('http')
+          ? target
+          : 'http://${headers['host'] ?? 'localhost'}$target',
+    );
     final contentLength = int.tryParse(headers['content-length'] ?? '') ?? 0;
 
     List<int>? body;
     if (contentLength > 0) {
-      body = await _readExactFromSocket(client, contentLength);
+      body = await socketBuffer.readExact(contentLength);
     }
 
     return HttpRequestData(
@@ -399,171 +417,6 @@ class ProxyServer {
       bytes.addAll(response.body!);
     }
     return bytes;
-  }
-
-  // ---- 底层 Socket 读取工具 ----
-
-  Future<String> _readLine(Socket socket, List<int> buffer) async {
-    var lineBuffer = <int>[];
-    // 先从已有 buffer 中读取
-    var i = 0;
-    for (; i < buffer.length; i++) {
-      final byte = buffer[i];
-      if (byte == 10) {
-        // \n
-        i++;
-        break;
-      }
-      if (byte != 13) lineBuffer.add(byte);
-    }
-    // 移除已读取的部分
-    buffer.removeRange(0, i);
-
-    if (lineBuffer.isNotEmpty || i > 0) {
-      return utf8.decode(lineBuffer, allowMalformed: true).trim();
-    }
-
-    // 从 socket 读取
-    final completer = Completer<String>();
-    late StreamSubscription<List<int>> sub;
-    sub = socket.listen(
-      (data) {
-        for (final byte in data) {
-          if (byte == 10) {
-            sub.cancel();
-            completer.complete(utf8.decode(lineBuffer, allowMalformed: true).trim());
-            return;
-          }
-          if (byte != 13) lineBuffer.add(byte);
-        }
-      },
-      onDone: () {
-        if (!completer.isCompleted) {
-          completer.complete(utf8.decode(lineBuffer, allowMalformed: true).trim());
-        }
-      },
-      onError: (e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-    );
-    return completer.future;
-  }
-
-  Future<void> _drainHeaders(Socket socket, List<int> buffer) async {
-    // 读取直到遇到空行（头部结束）
-    var consecutiveNewlines = 0;
-    final completer = Completer<void>();
-    late StreamSubscription<List<int>> sub;
-
-    // 先检查已有 buffer
-    for (final byte in buffer) {
-      if (byte == 10) {
-        consecutiveNewlines++;
-        if (consecutiveNewlines >= 2) {
-          completer.complete();
-          return;
-        }
-      } else if (byte != 13) {
-        consecutiveNewlines = 0;
-      }
-    }
-
-    sub = socket.listen(
-      (data) {
-        for (final byte in data) {
-          if (byte == 10) {
-            consecutiveNewlines++;
-            if (consecutiveNewlines >= 2) {
-              sub.cancel();
-              if (!completer.isCompleted) completer.complete();
-              return;
-            }
-          } else if (byte != 13) {
-            consecutiveNewlines = 0;
-          }
-        }
-      },
-      onDone: () {
-        if (!completer.isCompleted) completer.complete();
-      },
-      onError: (e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-    );
-    await completer.future;
-  }
-
-  Future<List<int>> _readUntilHeaderEndFromSocket(
-    Socket socket,
-    List<int> buffer,
-  ) async {
-    const endMarker = [13, 10, 13, 10];
-    var matchLen = 0;
-
-    // 检查已有 buffer
-    for (final byte in buffer) {
-      if (byte == endMarker[matchLen]) {
-        matchLen++;
-        if (matchLen == endMarker.length) {
-          return List<int>.from(buffer);
-        }
-      } else {
-        matchLen = (byte == endMarker[0]) ? 1 : 0;
-      }
-    }
-
-    final completer = Completer<List<int>>();
-    late StreamSubscription<List<int>> sub;
-    sub = socket.listen(
-      (data) {
-        for (final byte in data) {
-          buffer.add(byte);
-          if (byte == endMarker[matchLen]) {
-            matchLen++;
-            if (matchLen == endMarker.length) {
-              sub.cancel();
-              if (!completer.isCompleted) {
-                completer.complete(List<int>.from(buffer));
-              }
-              return;
-            }
-          } else {
-            matchLen = (byte == endMarker[0]) ? 1 : 0;
-          }
-        }
-      },
-      onDone: () {
-        if (!completer.isCompleted) completer.complete(List<int>.from(buffer));
-      },
-      onError: (e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-    );
-    return completer.future;
-  }
-
-  Future<List<int>> _readExactFromSocket(Socket socket, int length) async {
-    final result = <int>[];
-    final completer = Completer<List<int>>();
-    late StreamSubscription<List<int>> sub;
-    sub = socket.listen(
-      (data) {
-        result.addAll(data);
-        if (result.length >= length) {
-          sub.cancel();
-          if (!completer.isCompleted) {
-            completer.complete(result.sublist(0, length));
-          }
-        }
-      },
-      onDone: () {
-        if (!completer.isCompleted) completer.complete(result);
-      },
-      onError: (e) {
-        if (!completer.isCompleted) completer.completeError(e);
-      },
-    );
-    return completer.future;
   }
 
   void _handleRecord(CaptureRecord record) {

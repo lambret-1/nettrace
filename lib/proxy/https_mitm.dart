@@ -8,6 +8,7 @@ import '../models/http_request.dart';
 import '../models/http_response.dart';
 import 'certificate_manager.dart';
 import 'http_interceptor.dart';
+import 'socket_buffer.dart';
 
 /// HTTPS MITM (Man-In-The-Middle) 解密处理器
 ///
@@ -119,8 +120,10 @@ class HttpsMitm {
     final startTime = DateTime.now();
 
     try {
+      final clientBuffer = SocketBuffer(clientSecure);
+
       // 解析客户端请求
-      final request = await HttpInterceptor.parseRequest(clientSecure);
+      final request = await HttpInterceptor.parseRequest(clientBuffer);
       final fullUrl = 'https://$host${request.path ?? '/'}';
 
       final updatedRequest = HttpRequestData(
@@ -144,6 +147,7 @@ class HttpsMitm {
         timeout: const Duration(milliseconds: AppConstants.connectTimeout),
         onBadCertificate: (_) => true, // 代理接受所有证书
       );
+      final serverBuffer = SocketBuffer(serverSecure);
 
       // 转发请求到真实服务器
       serverSecure.add(HttpInterceptor.serializeRequest(updatedRequest));
@@ -152,7 +156,7 @@ class HttpsMitm {
       // 读取真实服务器响应
       final elapsed = DateTime.now().difference(startTime);
       final response = await HttpInterceptor.parseResponse(
-        serverSecure,
+        serverBuffer,
         elapsed: elapsed,
       );
 
@@ -170,7 +174,7 @@ class HttpsMitm {
       ));
 
       // 处理 keep-alive 连接上的后续请求
-      await _handleKeepAlive(clientSecure, serverSecure, host, port);
+      await _handleKeepAlive(clientSecure, serverSecure, clientBuffer, serverBuffer, host, port);
     } catch (e) {
       onRecord(CaptureRecord(
         id: _generateId(),
@@ -190,12 +194,14 @@ class HttpsMitm {
   Future<void> _handleKeepAlive(
     Socket client,
     Socket server,
+    SocketBuffer clientBuffer,
+    SocketBuffer serverBuffer,
     String host,
     int port,
   ) async {
     try {
       while (true) {
-        final request = await HttpInterceptor.parseRequest(client);
+        final request = await HttpInterceptor.parseRequest(clientBuffer);
         final startTime = DateTime.now();
         final fullUrl = 'https://$host${request.path ?? '/'}';
 
@@ -218,7 +224,7 @@ class HttpsMitm {
 
         final elapsed = DateTime.now().difference(startTime);
         final response = await HttpInterceptor.parseResponse(
-          server,
+          serverBuffer,
           elapsed: elapsed,
         );
 
