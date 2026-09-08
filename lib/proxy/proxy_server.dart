@@ -35,6 +35,45 @@ class ProxyServer {
   bool get isRunning => _isRunning;
   int get requestCount => _requestCount;
 
+  /// 获取本机 WiFi 局域网 IP 地址
+  ///
+  /// 用于展示给用户，在 WiFi 设置中配置 HTTP 代理。
+  /// 优先返回 192.168.x.x / 10.x.x.x / 172.16-31.x.x 网段地址。
+  Future<String> getLocalIpAddress() async {
+    try {
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          final ip = addr.address;
+          // 过滤常见局域网网段
+          if (ip.startsWith('192.168.') ||
+              ip.startsWith('10.') ||
+              _is172Private(ip)) {
+            return ip;
+          }
+        }
+      }
+      // 如果没有匹配到局域网网段，返回第一个非回环地址
+      if (interfaces.isNotEmpty && interfaces.first.addresses.isNotEmpty) {
+        return interfaces.first.addresses.first.address;
+      }
+      return '未获取到IP';
+    } catch (e) {
+      return '获取IP失败';
+    }
+  }
+
+  bool _is172Private(String ip) {
+    if (!ip.startsWith('172.')) return false;
+    final parts = ip.split('.');
+    if (parts.length < 2) return false;
+    final second = int.tryParse(parts[1]) ?? 0;
+    return second >= 16 && second <= 31;
+  }
+
   /// 启动代理服务
   Future<bool> start() async {
     if (_isRunning) return true;

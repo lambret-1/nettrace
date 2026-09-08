@@ -4,7 +4,9 @@ class AppConstants {
   static const String appVersion = '1.0.0';
 
   // 代理服务
-  static const String proxyHost = '127.0.0.1';
+  // 监听 0.0.0.0（全部网卡），其他APP才能通过局域网IP连接到代理
+  // 127.0.0.1 仅本进程可访问，外部APP无法连接
+  static const String proxyHost = '0.0.0.0';
   static const int proxyPort = 8888;
 
   // 存储

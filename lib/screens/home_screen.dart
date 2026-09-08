@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _searchQuery = '';
   String? _methodFilter;
   String? _statusFilter;
+  String _localIp = '获取中...';
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -154,7 +155,13 @@ class _HomeScreenState extends State<HomeScreen> {
       _proxy.useWhitelist = _store.useWhitelist;
 
       final success = await _proxy.start();
-      if (!success && mounted) {
+      if (success) {
+        // 获取本机局域网IP，用于展示给用户配置WiFi代理
+        final ip = await _proxy.getLocalIpAddress();
+        if (mounted) {
+          setState(() => _localIp = ip);
+        }
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('代理启动失败，端口可能被占用')),
         );
@@ -305,6 +312,8 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildStatusBar(),
           // 搜索栏
           _buildSearchBar(),
+          // 代理配置提示（仅抓包中显示）
+          if (_isRunning) _buildProxyHint(),
           // 记录列表
           Expanded(
             child: _filteredRecords.isEmpty
@@ -364,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 8),
           Text(
             _isRunning
-                ? '抓包中  ${AppConstants.proxyHost}:${AppConstants.proxyPort}'
+                ? '抓包中  $_localIp:${AppConstants.proxyPort}'
                 : '代理未启动',
             style: TextStyle(
               fontSize: 13,
@@ -425,6 +434,56 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// WiFi 代理配置提示卡片
+  Widget _buildProxyHint() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.blue.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.info_outline, size: 16, color: Colors.blue),
+              const SizedBox(width: 6),
+              const Text(
+                '请配置 WiFi 代理才能抓包',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '代理地址: $_localIp:${AppConstants.proxyPort}',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '1. 打开 设置 → WiFi → 点击当前网络 ⓘ\n'
+            '2. 滚动到「配置代理」，选择「手动」\n'
+            '3. 服务器填上面的IP，端口填 ${AppConstants.proxyPort}\n'
+            '4. 保存后，其他 APP 的流量才会进入抓包',
+            style: TextStyle(fontSize: 11, color: Colors.black54, height: 1.5),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '⚠️ 不要填 127.0.0.1，其他 APP 无法连接回环地址',
+            style: TextStyle(fontSize: 11, color: Colors.orange),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -444,9 +503,23 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          if (!_isRunning)
+          if (_isRunning)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                '请确认已在 WiFi 设置中配置代理\n'
+                '其他 APP 的流量才会进入抓包',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.orange,
+                  height: 1.5,
+                ),
+              ),
+            )
+          else
             Text(
-              '然后在 WiFi 设置中配置代理\n${AppConstants.proxyHost}:${AppConstants.proxyPort}',
+              '启动后在 WiFi 设置中配置代理',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
