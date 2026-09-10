@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub 镜像加速</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+            --border-color: #dddddd;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        h2 {
+            margin-top: 0;
+            color: #24292e;
+            font-size: 1.8rem;
+        }
+        .description {
+            color: #666;
+            font-size: 0.95rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.5;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+        button {
+            padding: 12px 24px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: background-color 0.3s;
+            white-space: nowrap;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .status {
+            font-size: 0.9rem;
+            color: #28a745;
+            margin-top: 10px;
+            display: none;
+        }
+        .error {
+            color: #dc3545;
+        }
+        .tip {
+            font-size: 0.85rem;
+            color: #888;
+            text-align: left;
+            margin-top: 20px;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🚀 GitHub 镜像加速</h2>
+    <p class="description">
+        请输入 GitHub 链接（仓库、Release 或 Raw 文件），点击加速即可跳转。
+    </p>
+
+    <!-- 加速操作区域 -->
+    <div>
+        <div class="input-group">
+            <input type="text" id="ghUrl" placeholder="https://github.com/...">
+            <button onclick="accelerate()">加速</button>
+        </div>
+        <div id="statusMsg" class="status"></div>
+    </div>
+
+    <div class="tip">
+        <strong>💡 提示：</strong>
+        <ul style="margin: 5px 0; padding-left: 20px; text-align: left;">
+            <li>支持 Clone 仓库、下载 Release 文件。</li>
+            <li>如果链接无法打开，请检查网络或尝试刷新。</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+    // 获取当前页面的域名作为镜像前缀
+    const MIRROR_BASE = window.location.origin + "/";
+
+    function accelerate() {
+        let url = document.getElementById('ghUrl').value.trim();
+        const statusMsg = document.getElementById('statusMsg');
+
+        if (!url) {
+            showStatus('请输入链接', true);
+            return;
+        }
+
+        // 简单的 URL 补全逻辑
+        if (!url.startsWith('http')) {
+            url = 'https://github.com/' + url;
+        }
+
+        // 构造加速链接
+        let finalUrl = MIRROR_BASE + url;
+        
+        // 防止重复拼接
+        if (finalUrl.includes(MIRROR_BASE + MIRROR_BASE)) {
+            finalUrl = url;
+        }
+
+        showStatus('正在跳转...', false);
+        
+        // 在新标签页打开
+        window.open(finalUrl, '_blank');
+        
+        // 清空输入框
+        document.getElementById('ghUrl').value = '';
+    }
+
+    function showStatus(msg, isError) {
+        const statusMsg = document.getElementById('statusMsg');
+        statusMsg.textContent = msg;
+        statusMsg.className = 'status' + (isError ? ' error' : '');
+        statusMsg.style.display = 'block';
+        
+        if (!isError) {
+            setTimeout(() => { statusMsg.style.display = 'none'; }, 3000);
+        }
+    }
+</script>
+
+</body>
+</html>
