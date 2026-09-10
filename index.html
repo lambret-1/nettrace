@@ -142,6 +142,7 @@
         }
 
         // 构造加速链接
+        // 逻辑：当前域名 + 原始链接
         let finalUrl = MIRROR_BASE + url;
         
         // 防止重复拼接
@@ -151,8 +152,8 @@
 
         showStatus('正在跳转...', false);
         
-        // 在新标签页打开
-        window.open(finalUrl, '_blank');
+        // 直接跳转当前页面，避免浏览器拦截弹窗
+        window.location.href = finalUrl;
         
         // 清空输入框
         document.getElementById('ghUrl').value = '';
