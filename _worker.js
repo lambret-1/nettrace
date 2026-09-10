@@ -60,7 +60,7 @@ function setResponseHeaders(
 
 /**
  * 替换内容
- * @param originalResponse 响应
+ * @param originalResponse 响应 
  * @param proxyHostname 代理地址 hostname
  * @param pathnameRegex 代理地址路径匹配的正则表达式
  * @param originHostname 替换的字符串
