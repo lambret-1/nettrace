@@ -48,6 +48,13 @@ function setResponseHeaders(
   if (DEBUG) {
     newResponseHeaders.delete("content-security-policy");
   }
+  let docker_auth_url = newResponseHeaders.get("www-authenticate");
+  if (docker_auth_url && docker_auth_url.includes("auth.docker.io/token")) {
+    newResponseHeaders.set(
+      "www-authenticate",
+      docker_auth_url.replace("auth.docker.io/token", originHostname + "/token")
+    );
+  }
   return newResponseHeaders;
 }
 
@@ -109,8 +116,8 @@ Commercial support is available at
 export default {
   async fetch(request, env, ctx) {
     try {
-      const {
-        PROXY_HOSTNAME ="github.com",
+      let {
+        PROXY_HOSTNAME = "registry-1.docker.io",
         PROXY_PROTOCOL = "https",
         PATHNAME_REGEX,
         UA_WHITELIST_REGEX,
@@ -125,6 +132,11 @@ export default {
       } = env;
       const url = new URL(request.url);
       const originHostname = url.hostname;
+      if (url.pathname.includes("/token")) {
+        PROXY_HOSTNAME = "auth.docker.io";
+      } else if (url.pathname.includes("/search")) {
+        PROXY_HOSTNAME = "index.docker.io";
+      }
       if (
         !PROXY_HOSTNAME ||
         (PATHNAME_REGEX && !new RegExp(PATHNAME_REGEX).test(url.pathname)) ||
